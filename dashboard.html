@@ -1,0 +1,207 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SaaS Reply - Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    body{margin:0;font-family:Inter,system-ui;background:#0b1220;color:#fff}
+    .wrap{width:min(1100px,94vw);margin:24px auto}
+    .top{display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px;border:1px solid rgba(255,255,255,.14);border-radius:16px;background:rgba(255,255,255,.06)}
+    .btn{padding:10px 12px;border-radius:12px;border:1px solid rgba(255,255,255,.14);background:rgba(0,0,0,.2);color:#fff;cursor:pointer;font-weight:700}
+    .btn.primary{border:0;background:linear-gradient(135deg,#7c3aed,#22c55e)}
+    .btn.danger{border:1px solid rgba(239,68,68,.4);background:rgba(239,68,68,.15)}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:14px}
+    .card{padding:14px;border:1px solid rgba(255,255,255,.14);border-radius:16px;background:rgba(255,255,255,.06)}
+    h2{margin:0 0 10px;font-size:16px}
+    .muted{opacity:.7;font-size:12px}
+    .msg{margin-top:10px;min-height:18px;font-size:12px;opacity:.85;white-space:pre-wrap}
+    .err{color:#ef4444;opacity:1}
+    .ok{color:#22c55e;opacity:1}
+    textarea{width:100%;min-height:220px;border-radius:12px;border:1px solid rgba(255,255,255,.14);background:rgba(0,0,0,.25);color:#fff;padding:10px;outline:none}
+    input[type="file"]{width:100%}
+    .list{display:grid;gap:10px;margin-top:10px}
+    .row{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px;border:1px solid rgba(255,255,255,.14);border-radius:12px;background:rgba(0,0,0,.18)}
+    .pill{font-size:12px;opacity:.8;padding:5px 10px;border:1px solid rgba(255,255,255,.14);border-radius:999px}
+    @media (max-width:900px){ .grid{grid-template-columns:1fr} }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="top">
+      <div>
+        <div style="font-weight:800">SaaS Reply</div>
+        <div class="muted" id="userLine">Loading...</div>
+      </div>
+      <div style="display:flex;gap:10px;align-items:center">
+        <button class="btn" id="logoutBtn">Logout</button>
+      </div>
+    </div>
+
+    <div class="grid">
+      <!-- Google JSON -->
+      <div class="card">
+        <h2>1) Upload Google Client JSON</h2>
+        <div class="muted">Upload <b>client_secret.json</b> (web or installed). We extract client_id + secret automatically.</div>
+        <div style="height:8px"></div>
+        <input id="jsonFile" type="file" accept=".json,application/json">
+        <div style="height:10px"></div>
+        <button class="btn primary" id="saveJsonBtn">Save Google OAuth</button>
+      </div>
+
+      <!-- Connect / Disconnect -->
+      <div class="card">
+        <h2>2) Connect Gmail (max 10)</h2>
+        <div class="muted">After saving JSON, click connect. You’ll be redirected to Google consent.</div>
+        <div style="height:10px"></div>
+        <button class="btn primary" id="connectBtn">Connect Gmail</button>
+        <div style="height:10px"></div>
+        <button class="btn danger" id="disconnectAllBtn">Disconnect ALL Gmail + Delete related data</button>
+      </div>
+
+      <!-- Gmail list -->
+      <div class="card" style="grid-column:1/-1">
+        <h2>Connected Gmail Accounts</h2>
+        <div class="muted" id="countLine">Loading…</div>
+        <div class="list" id="gmailList"></div>
+      </div>
+
+      <!-- Template (per user) -->
+      <div class="card" style="grid-column:1/-1">
+        <h2>Reply Template (per user)</h2>
+        <div class="muted">This template is saved to <b>reply_templates.reply_text</b> and used by your worker.</div>
+        <div style="height:10px"></div>
+        <textarea id="tplHtml" placeholder="<p>Hello, thank you for your email...</p>"></textarea>
+        <div style="height:10px;display:flex;gap:10px;flex-wrap:wrap">
+          <button class="btn" id="loadTplBtn">Load Template</button>
+          <button class="btn primary" id="saveTplBtn">Save Template</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="msg" class="msg"></div>
+  </div>
+
+  <script type="module">
+    import { supabase, requireAuthOrRedirect } from "./assets/supabase.js";
+    import {
+      showMsg, extractGoogleClient, saveGoogleOAuthClient,
+      startGmailConnect, loadGmailAccounts, disconnectAllGmail,
+      loadUserTemplate, saveUserTemplate, enforceMax
+    } from "./assets/ui.js";
+
+    const user = await requireAuthOrRedirect();
+    document.getElementById("userLine").textContent = user.email ? `Logged in: ${user.email}` : `User: ${user.id}`;
+
+    document.getElementById("logoutBtn").addEventListener("click", async () => {
+      await supabase.auth.signOut();
+      window.location.href = "./index.html";
+    });
+
+    async function refreshGmail() {
+      showMsg("Loading Gmail accounts…");
+      const list = await loadGmailAccounts();
+
+      document.getElementById("countLine").textContent =
+        `You have ${list.length} Gmail account(s). Max allowed: 10.`;
+
+      const box = document.getElementById("gmailList");
+      box.innerHTML = "";
+
+      for (const row of list) {
+        const div = document.createElement("div");
+        div.className = "row";
+
+        const expiry = row.token_expiry ? new Date(row.token_expiry).toLocaleString() : "—";
+        const created = row.created_at ? new Date(row.created_at).toLocaleString() : "—";
+
+        div.innerHTML = `
+          <div>
+            <div style="font-weight:800">${row.gmail_address}</div>
+            <div class="muted">Token Expiry: ${expiry}</div>
+          </div>
+          <div style="text-align:right">
+            <div class="pill">Created: ${created}</div>
+            <div class="muted" style="margin-top:6px">ID: ${row.id}</div>
+          </div>
+        `;
+
+        box.appendChild(div);
+      }
+
+      showMsg("Ready.", "ok");
+      return list;
+    }
+
+    // Save Google JSON
+    document.getElementById("saveJsonBtn").addEventListener("click", async () => {
+      try {
+        const f = document.getElementById("jsonFile").files?.[0];
+        if (!f) return showMsg("Please choose a JSON file first.", "err");
+
+        const text = await f.text();
+        const json = JSON.parse(text);
+        const extracted = extractGoogleClient(json);
+
+        await saveGoogleOAuthClient(extracted);
+        showMsg("✅ Google OAuth saved from JSON.\nNow click Connect Gmail.", "ok");
+      } catch (e) {
+        showMsg("❌ JSON save failed:\n" + (e.message || e), "err");
+      }
+    });
+
+    // Connect Gmail (enforce max 10)
+    document.getElementById("connectBtn").addEventListener("click", async () => {
+      try {
+        const list = await loadGmailAccounts();
+        enforceMax(list.length);
+        await startGmailConnect();
+      } catch (e) {
+        showMsg("❌ Connect failed:\n" + (e.message || e), "err");
+      }
+    });
+
+    // Disconnect ALL Gmail + delete related data (your existing function)
+    document.getElementById("disconnectAllBtn").addEventListener("click", async () => {
+      try {
+        if (!confirm("This will disconnect ALL Gmail and delete related data. Continue?")) return;
+        const out = await disconnectAllGmail();
+        showMsg("✅ Disconnect done:\n" + JSON.stringify(out, null, 2), "ok");
+        await refreshGmail();
+      } catch (e) {
+        showMsg("❌ Disconnect failed:\n" + (e.message || e), "err");
+      }
+    });
+
+    // Template load/save (per user)
+    document.getElementById("loadTplBtn").addEventListener("click", async () => {
+      try {
+        const html = await loadUserTemplate();
+        document.getElementById("tplHtml").value = html || "";
+        showMsg("✅ Template loaded.", "ok");
+      } catch (e) {
+        showMsg("❌ Load template failed:\n" + (e.message || e), "err");
+      }
+    });
+
+    document.getElementById("saveTplBtn").addEventListener("click", async () => {
+      try {
+        const html = document.getElementById("tplHtml").value || "";
+        if (!html.trim()) return showMsg("Template is empty.", "err");
+
+        await saveUserTemplate(html);
+        showMsg("✅ Template saved.", "ok");
+      } catch (e) {
+        showMsg("❌ Save template failed:\n" + (e.message || e), "err");
+      }
+    });
+
+    // Initial load
+    await refreshGmail();
+    // Optional: auto-load template
+    // document.getElementById("tplHtml").value = await loadUserTemplate();
+  </script>
+</body>
+</html>

@@ -1,0 +1,60 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>SaaS Reply - Login</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    body{margin:0;font-family:Inter,system-ui;background:#0b1220;color:#fff;display:grid;place-items:center;min-height:100vh}
+    .card{width:min(440px,92vw);background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.14);border-radius:16px;padding:18px}
+    h1{margin:0 0 10px;font-size:22px}
+    .muted{opacity:.7;font-size:12px;margin-bottom:12px}
+    label{font-size:12px;opacity:.7}
+    input{width:100%;padding:12px;border-radius:12px;border:1px solid rgba(255,255,255,.14);background:rgba(0,0,0,.25);color:#fff;outline:none;margin:8px 0 14px}
+    button{width:100%;padding:12px;border-radius:12px;border:0;background:linear-gradient(135deg,#7c3aed,#22c55e);color:#fff;font-weight:700;cursor:pointer}
+    .msg{margin-top:10px;min-height:18px;font-size:12px;opacity:.85;white-space:pre-wrap}
+    .err{color:#ef4444;opacity:1}
+    .ok{color:#22c55e;opacity:1}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>SaaS Reply</h1>
+    <div class="muted">Login to manage Gmail accounts and auto-reply templates.</div>
+
+    <label>Email</label>
+    <input id="email" type="email" placeholder="you@email.com">
+
+    <label>Password</label>
+    <input id="password" type="password" placeholder="********">
+
+    <button id="loginBtn">Login</button>
+    <div id="msg" class="msg"></div>
+  </div>
+
+  <script type="module">
+    import { supabase } from "./assets/supabase.js";
+
+    const msg = document.getElementById("msg");
+    const show = (t,c="")=>{ msg.textContent=t||""; msg.className="msg "+c; };
+
+    // If already logged in, go dashboard
+    const { data } = await supabase.auth.getSession();
+    if (data?.session) window.location.href = "./dashboard.html";
+
+    document.getElementById("loginBtn").addEventListener("click", async () => {
+      show("Logging in...");
+      const email = document.getElementById("email").value.trim();
+      const password = document.getElementById("password").value;
+
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) return show("Login failed:\n"+error.message, "err");
+
+      show("Login success", "ok");
+      window.location.href = "./dashboard.html";
+    });
+  </script>
+</body>
+</html>
